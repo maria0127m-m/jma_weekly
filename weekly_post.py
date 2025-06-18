@@ -1,0 +1,95 @@
+import requests
+from PIL import Image, ImageDraw, ImageFont
+import io
+from datetime import datetime, timedelta
+
+DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1384784710798147604/MhC_WVICE202ZixKFfPBwCvgqc_qf2W6gLYlDUBG5U0R_q3FejUC2zyTZJyGElOje3do"  # ← 差し替え
+
+# 最新水曜日の日付を取得（毎週金曜基準で2日前）
+def get_latest_wednesday():
+    jst_now = datetime.utcnow() + timedelta(hours=9)
+    # 金曜に実行 → 水曜は2日前
+    wednesday = jst_now - timedelta(days=2)
+    return wednesday.strftime('%Y%m%d')
+
+# 画像取得
+def get_image(url):
+    res = requests.get(url)
+    return Image.open(io.BytesIO(res.content)).convert("RGB") if res.status_code == 200 else None
+
+# マージンとラベル追加
+def add_margin_and_label(image, label, margin=30, color=(255, 255, 255)):
+    new_width = image.width + margin * 2
+    new_height = image.height + margin * 2
+    new_img = Image.new("RGB", (new_width, new_height), color)
+    new_img.paste(image, (margin, margin))
+
+    draw = ImageDraw.Draw(new_img)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 32)
+    except:
+        font = ImageFont.load_default()
+
+    draw.text((margin + 10, margin + 10), label, fill="black", font=font, stroke_width=2, stroke_fill="white")
+    return new_img
+
+# 縦に結合（横幅を統一）
+def concat_images_two_uniform(img1, img2):
+    max_width = max(img1.width, img2.width)
+
+    def resize(img):
+        if img.width == max_width:
+            return img
+        new_height = int(img.height * (max_width / img.width))
+        return img.resize((max_width, new_height), Image.BICUBIC)
+
+    img1 = resize(img1)
+    img2 = resize(img2)
+
+    combined = Image.new("RGB", (max_width, img1.height + img2.height))
+    combined.paste(img1, (0, 0))
+    combined.paste(img2, (0, img1.height))
+
+    output = io.BytesIO()
+    combined.save(output, format="PNG")
+    output.seek(0)
+    return output
+
+# 投稿処理
+def post_to_discord():
+    date_str = get_latest_wednesday()
+
+    urls = [
+        f"https://ds.data.jma.go.jp/tcc/tcc/products/climate/db/monitor/weekly/fg{date_str}e.png",
+        f"https://ds.data.jma.go.jp/tcc/tcc/products/climate/db/monitor/weekly/fgtemp{date_str}e.png"
+    ]
+
+    labels = ["Extreme Climate Events", "Weekly Temperature Anomaly"]
+
+    imgs = []
+    for url, label in zip(urls, labels):
+        img = get_image(url)
+        if img:
+            img = add_margin_and_label(img, label)
+        imgs.append(img)
+
+    if None in imgs:
+        print("❌ 画像取得に失敗")
+        return
+
+    combined = concat_images_two_uniform(imgs[0], imgs[1])
+
+    files = {
+        "file": ("jma_weekly.png", combined, "image/png")
+    }
+
+    content = f"🗓 気象庁 週次気候図（{date_str}基準）\nExtreme Climate Events + Temperature をまとめて投稿します。"
+
+    res = requests.post(DISCORD_WEBHOOK_URL, data={"content": content}, files=files)
+    if res.status_code == 204:
+        print("✅ 投稿成功")
+    else:
+        print(f"⚠ 投稿失敗: {res.status_code}, {res.text}")
+
+if __name__ == "__main__":
+    post_to_discord()
