@@ -3,13 +3,19 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 from datetime import datetime, timedelta
 
-DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1384784710798147604/MhC_WVICE202ZixKFfPBwCvgqc_qf2W6gLYlDUBG5U0R_q3FejUC2zyTZJyGElOje3do"  # ← 差し替え
-
-# 最新水曜日の日付を取得（毎週金曜基準で2日前）
-def get_latest_wednesday():
+DISCORD_WEBHOOK_URL = "https://discordapp.com/api/webhooks/1384784710798147604/MhC_WVICE202ZixKFfPBwCvgqc_qf2W6gLYlDUBG5U0R_q3FejUC2zyTZJyGElOje3do"
+# 「その週の水曜日」を安全に取得する（毎週金曜実行を想定）
+def get_latest_available_wednesday():
     jst_now = datetime.utcnow() + timedelta(hours=9)
-    # 金曜に実行 → 水曜は2日前
-    wednesday = jst_now - timedelta(days=2)
+    weekday = jst_now.weekday()  # 月=0, 火=1, 水=2, ..., 金=4
+
+    if weekday < 4:
+        # 月〜木：1週前の水曜に戻る
+        jst_now -= timedelta(weeks=1)
+
+    # 現在時点での週の水曜を計算
+    days_to_wednesday = 2 - jst_now.weekday()
+    wednesday = jst_now + timedelta(days=days_to_wednesday)
     return wednesday.strftime('%Y%m%d')
 
 # 画像取得
@@ -57,17 +63,17 @@ def concat_images_two_uniform(img1, img2):
 
 # 投稿処理
 def post_to_discord():
-    date_str = get_latest_wednesday()
+    date_str = get_latest_available_wednesday()
 
     urls = [
         f"https://ds.data.jma.go.jp/tcc/tcc/products/climate/db/monitor/weekly/fg{date_str}e.png",
         f"https://ds.data.jma.go.jp/tcc/tcc/products/climate/db/monitor/weekly/fgtemp{date_str}e.png"
     ]
-
     labels = ["Extreme Climate Events", "Weekly Temperature Anomaly"]
 
     imgs = []
     for url, label in zip(urls, labels):
+        print(f"🔗 取得中: {url}")
         img = get_image(url)
         if img:
             img = add_margin_and_label(img, label)
@@ -83,7 +89,7 @@ def post_to_discord():
         "file": ("jma_weekly.png", combined, "image/png")
     }
 
-    content = f"🗓 気象庁 週次気候図（{date_str}基準）\nExtreme Climate Events + Temperature をまとめて投稿します。"
+    content = f"🗓 気象庁 週次気候図（{date_str}基準）\nExtreme Climate Events + Temperature Anomaly をまとめて投稿します。"
 
     res = requests.post(DISCORD_WEBHOOK_URL, data={"content": content}, files=files)
     if res.status_code == 204:
