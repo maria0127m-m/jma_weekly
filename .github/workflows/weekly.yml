@@ -1,0 +1,23 @@
+name: Weekly JMA Post
+
+on:
+  schedule:
+    - cron: '0 3 * * 5'  # 毎週金曜日12:00 JST = UTC 03:00
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Run weekly post
+      run: python weekly_post.py
